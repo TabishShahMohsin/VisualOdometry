@@ -15,77 +15,73 @@ distCoeffs = np.zeros((4, 1), dtype=np.float32) # Don't change this line, this w
 
 def run_hough_lines_on_video(video_path):
     cap = cv2.VideoCapture(video_path)
-    # cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Couldn't open video.")
         return
 
     processor = HoughCornerDetecter()
-
-    t_total = np.zeros((3, 1))
-    trajectory = [t_total]
-    yaw_trajectory = [0]
+    
+    trajectory = []
+    last_R = None
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            break  # End of video
+            break
 
         intersections = processor.process_image(frame)
+        if not intersections:
+            continue
+
+        result = ransac(intersections)
+        if result is None:
+            continue
+
+        rvec, tvec, imagePoints, point = result
+        
+        # Convert rvec to a full rotation matrix
+        R, _ = cv2.Rodrigues(rvec)
+
+        # This is the pose of the WORLD coordinate system relative to the CAMERA
+        # R_cam_world = R
+        # t_cam_world = tvec
+
+        # To get the camera's pose in the world, we need to invert this transformation
+        # R_world_cam = R.T
+        # t_world_cam = -R.T @ tvec
+
+        # --- Pose Stabilization ---
+        # solvePnP can be unstable and flip 180 degrees. We check for this.
+        if last_R is not None:
+            # Check if the z-axis of the new rotation is flipped compared to the last one
+            if np.dot(R[:, 2], last_R[:, 2]) < 0:
+                # If it's flipped, rotate it 180 degrees around its own z-axis
+                R_flip = np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]])
+                R = R @ R_flip
+                tvec = R_flip @ tvec # Also correct the translation
+
+        # Calculate camera position in world coordinates
+        camera_position = -R.T @ tvec
+        trajectory.append(camera_position.flatten())
+        last_R = R
+        
+        # --- Visualization ---
         for x, y in intersections:
             cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)
-        # print("intersection_count: ", len(intersections))
+        
+        if imagePoints is not None:
+            for i in imagePoints:
+                cv2.circle(frame, (int(i[0]), int(i[1])), 15, (0, 255, 0), -1)
+        if point is not None:
+            cv2.circle(frame, (point[0], point[1]), 7, (255, 0, 0), -1)
 
-        rvec, tvec, imagePoints, point = ransac(intersections)
-
-        sign = yaw_sign(yaw_trajectory[-1])
-
-        # print('tvec:', tvec, '\n', 'trajectory:',  trajectory)
-        x, y, z, yaw = translation_delta(tvec, trajectory[-1], rvec[2], yaw_trajectory[-1])
-        x = x * sign
-        y = y * sign
-        print('x, y, z, yaw:', x, y, z, yaw)
-
-        # print(rvec, tvec, sep='\n') 
-        trajectory.append(trajectory[-1] + np.array([x, y, z]))
-        yaw_trajectory.append(yaw_trajectory[-1] + yaw)
-        # print(trajectory)
-        print('current coordinates', trajectory[-1])
-        print('current_yaw', yaw_trajectory[-1])
-
-
-        for i in imagePoints:
-            cv2.circle(frame, (int(i[0]), int(i[1])), 15, (0, 255, 0), -1)
-        cv2.circle(frame, (point[0], point[1]), 7, (0, 0, 255), -1)
         cv2.imshow('Hough Corner Detection', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit early
+        if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+            
     cap.release()
     cv2.destroyAllWindows()
     return trajectory
-
-def translation_delta(final_tvec: np.array, initial_tvec:np.array, final_yaw: np.array, initial_yaw:np.array) -> np.array:
-
-    # Making z +ve
-    sign_i = 1 if initial_tvec[2] > 0 else -1
-    sign_f = 1 if final_tvec[2] > 0 else -1
-    initial_tvec = initial_tvec * sign_i
-    final_tvec = final_tvec * sign_f
-
-    initial_yaw = initial_yaw * sign_i
-    final_yaw = final_yaw * sign_f
-
-    print('final_x:', final_tvec[0], 'initial_x', initial_tvec[0])
-    x = wrap_centered(final_tvec[0] - initial_tvec[0], config.WIDTH)
-    y = wrap_centered(final_tvec[1] - initial_tvec[1], config.HEIGHT)
-    z = final_tvec[2] - initial_tvec[2] 
-    yaw = wrap_centered(final_yaw - initial_yaw, np.pi / 2)
-    # print('x, y, z:', x, y, z)
-    return np.round(x, 5), np.round(y, 5), np.round(z, 5), np.round(yaw, 5)
-
-def wrap_centered(value, max_value):
-    return ((value + max_value / 2) % max_value) - max_value / 2
-    
 
 
 def show_trajectory(trajectory):
@@ -127,15 +123,6 @@ def show_trajectory(trajectory):
     ax.set_zlabel("Z")
     ax.legend()
     plt.show()
-
-
-def yaw_sign(yaw):
-    return 1
-    if 0 <= yaw < np.pi / 4:
-        return 1
-    else:
-        return -1
-    # return 1 if wrap_centered(yaw, 2 * np.pi) > 0 else -1
 
 
 if __name__ == "__main__":

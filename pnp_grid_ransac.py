@@ -45,7 +45,8 @@ def ransac(intersections:list) -> np.array:
                 #     print('t', t,'\n', 'r',  r)
             except:
                 pass
-    # Ransac is to be used here
+    # If no solution is found after checking all points, return None
+    return None
 
 
 
