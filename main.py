@@ -25,6 +25,8 @@ def run_hough_lines_on_video(video_path):
     t_total = np.zeros((3, 1))
     trajectory = [t_total]
     yaw_trajectory = [0]
+    prev_rvec = np.zeros((3, 1))
+    prev_tvec = np.zeros((3, 1))
 
     while True:
         ret, frame = cap.read()
@@ -36,14 +38,13 @@ def run_hough_lines_on_video(video_path):
             cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)
         # print("intersection_count: ", len(intersections))
 
-        rvec, tvec, imagePoints, point = ransac(intersections)
+        prev_rvec, prev_tvec, imagePoints, point = ransac(intersections, prev_rvec, prev_tvec)
 
-        sign = yaw_sign(yaw_trajectory[-1])
+        rvec, tvec = inv(prev_rvec, prev_tvec)
+
 
         # print('tvec:', tvec, '\n', 'trajectory:',  trajectory)
         x, y, z, yaw = translation_delta(tvec, trajectory[-1], rvec[2], yaw_trajectory[-1])
-        x = x * sign
-        y = y * sign
         print('x, y, z, yaw:', x, y, z, yaw)
 
         # print(rvec, tvec, sep='\n') 
@@ -54,12 +55,14 @@ def run_hough_lines_on_video(video_path):
         print('current_yaw', yaw_trajectory[-1])
 
 
-        for i in imagePoints:
-            cv2.circle(frame, (int(i[0]), int(i[1])), 15, (0, 255, 0), -1)
-        cv2.circle(frame, (point[0], point[1]), 7, (0, 0, 255), -1)
+        for i, pt in enumerate(imagePoints):
+            cv2.circle(frame, (int(pt[0]), int(pt[1])), int((i + 1) * 15 / 4), (0, 255, 0), -1)
+        cv2.circle(frame, (point[0], point[1]), 7, (255, 0, 0), -1)
         cv2.imshow('Hough Corner Detection', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit early
-            break
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        # if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit early
+        #     break
     cap.release()
     cv2.destroyAllWindows()
     return trajectory
@@ -69,6 +72,7 @@ def translation_delta(final_tvec: np.array, initial_tvec:np.array, final_yaw: np
     # Making z +ve
     sign_i = 1 if initial_tvec[2] > 0 else -1
     sign_f = 1 if final_tvec[2] > 0 else -1
+
     initial_tvec = initial_tvec * sign_i
     final_tvec = final_tvec * sign_f
 
@@ -76,8 +80,8 @@ def translation_delta(final_tvec: np.array, initial_tvec:np.array, final_yaw: np
     final_yaw = final_yaw * sign_f
 
     print('final_x:', final_tvec[0], 'initial_x', initial_tvec[0])
-    x = wrap_centered(final_tvec[0] - initial_tvec[0], config.WIDTH)
-    y = wrap_centered(final_tvec[1] - initial_tvec[1], config.HEIGHT)
+    x = wrap_centered(final_tvec[0] - initial_tvec[0], config.HEIGHT)
+    y = wrap_centered(final_tvec[1] - initial_tvec[1], config.WIDTH)
     z = final_tvec[2] - initial_tvec[2] 
     yaw = wrap_centered(final_yaw - initial_yaw, np.pi / 2)
     # print('x, y, z:', x, y, z)
@@ -129,15 +133,26 @@ def show_trajectory(trajectory):
     plt.show()
 
 
-def yaw_sign(yaw):
-    return 1
-    if 0 <= yaw < np.pi / 4:
-        return 1
-    else:
-        return -1
-    # return 1 if wrap_centered(yaw, 2 * np.pi) > 0 else -1
+
+def inv(rvec_oc, tvec_oc):
+    return rvec_oc, tvec_oc
+    
+    # Convert rvec to rotation matrix
+    R_oc, _ = cv2.Rodrigues(rvec_oc)
+
+    # Invert rotation (R_co = R_oc.T)
+    R_co = R_oc.T
+
+    # Invert translation (t_co = -R_co @ t_oc)
+    tvec_co = -R_co @ tvec_oc
+
+    # Convert inverted rotation matrix back to rvec
+    rvec_co, _ = cv2.Rodrigues(R_co)
+
+    return rvec_co, tvec_co
 
 
 if __name__ == "__main__":
-    traj = run_hough_lines_on_video('test4.mp4')  # Change to your video file path
+    import sys
+    traj = run_hough_lines_on_video(sys.argv[1])  # Change to your video file path
     show_trajectory(traj)

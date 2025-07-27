@@ -7,7 +7,7 @@ import cv2
 distCoeffs = np.zeros((1, 4))  # or use your actual distortion
 distCoeffs = np.asarray(distCoeffs, dtype=np.float64)
 
-def ransac(intersections:list) -> np.array:
+def ransac(intersections:list, prev_r, prev_t) -> np.array:
     # This function should take the intersections and return a np.array
 
     # First making the first point choice random:
@@ -36,6 +36,10 @@ def ransac(intersections:list) -> np.array:
             ], dtype=np.float32)
             try:
                 success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs)
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_IPPE)
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True)
                 if success:
                     return rvec, tvec, imagePoints, point
                 # PNP is failing in many cases

@@ -70,24 +70,24 @@ def draw_scene(yaw, tx, ty, tz):
     return img
 
 # === Main Motion and Video Creation ===
-yaw, tx, ty, tz = 0, 0, 0, 125
+yaw, tx, ty, tz = 90, 0, 0, 125
 
 frame = draw_scene(yaw, tx, ty, tz)
 h, w = frame.shape[:2]
 
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-video_writer = cv2.VideoWriter('test4.mp4', fourcc, 30, (w, h))
+video_writer = cv2.VideoWriter('test1.mp4', fourcc, 30, (w, h))
 
 video_writer.write(frame)
-
-# Move in +x
-for _ in range(100):
-    tx += 1
-    video_writer.write(draw_scene(yaw, tx, ty, tz))
 
 # Move in +y
 for _ in range(100):
     ty += 1
+    video_writer.write(draw_scene(yaw, tx, ty, tz))
+
+# Move in +x
+for _ in range(100):
+    tx += 1
     video_writer.write(draw_scene(yaw, tx, ty, tz))
 
 # Rotate +180°
@@ -95,19 +95,15 @@ for _ in range(90):
     yaw += 2  # degrees
     video_writer.write(draw_scene(yaw, tx, ty, tz))
 
-# Move back in -x
+# Move back in -y
 for _ in range(100):
     ty -= 1
     video_writer.write(draw_scene(yaw, tx, ty, tz))
 
+# Move back in -x
 for _ in range(100):
     tx -= 1
     video_writer.write(draw_scene(yaw, tx, ty, tz))
-
-# # Move back in -y
-# for _ in range(100):
-#     ty -= 1
-#     video_writer.write(draw_scene(yaw, tx, ty, tz))
 
 # Rotate back -180°
 for _ in range(90):
