@@ -35,7 +35,7 @@ def ransac(intersections:list, prev_r, prev_t) -> np.array:
                 points[(i + 2) % 8],  # corresponding to p3
             ], dtype=np.float32)
             try:
-                success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs)
+                success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_IPPE)

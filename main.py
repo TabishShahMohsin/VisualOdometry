@@ -135,7 +135,7 @@ def show_trajectory(trajectory):
 
 
 def inv(rvec_oc, tvec_oc):
-    return rvec_oc, tvec_oc
+    # return rvec_oc, tvec_oc
     
     # Convert rvec to rotation matrix
     R_oc, _ = cv2.Rodrigues(rvec_oc)
