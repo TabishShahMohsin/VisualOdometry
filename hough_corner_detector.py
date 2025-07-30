@@ -58,7 +58,7 @@ class HoughCornerDetecter:
 
         # Parameters for Canny Edge Detector
         self.canny_lower_thresh = 3  # Increased default for better edge detection
-        self.canny_higher_thresh = 30 # Increased default for better edge detection
+        self.canny_higher_thresh = 9 # Increased default for better edge detection
 
         # Parameters for HoughLinesP
         self.hough_rho = 1              # Distance resolution of the accumulator in pixels.

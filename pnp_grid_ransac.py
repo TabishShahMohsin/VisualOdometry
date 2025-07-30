@@ -7,7 +7,7 @@ import cv2
 distCoeffs = np.zeros((1, 4))  # or use your actual distortion
 distCoeffs = np.asarray(distCoeffs, dtype=np.float64)
 
-def ransac(intersections:list, prev_r, prev_t) -> np.array:
+def ransac(intersections:list) -> np.array:
     # This function should take the intersections and return a np.array
 
     # First making the first point choice random:
@@ -36,12 +36,11 @@ def ransac(intersections:list, prev_r, prev_t) -> np.array:
             ], dtype=np.float32)
             try:
                 success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None)
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_AP3P)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_IPPE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True)
-                if success:
-                    return rvec, tvec, imagePoints, point
                 # PNP is failing in many cases
                 # t = np.rint(tvec % np.array([[10], [15], [1]])).astype(np.int16)
                 # r = np.rint(np.rad2deg(rvec) % np.array([180])).astype(np.int16)
@@ -49,6 +48,10 @@ def ransac(intersections:list, prev_r, prev_t) -> np.array:
                 #     print('t', t,'\n', 'r',  r)
             except:
                 pass
+            else:
+                if success:
+                    return rvec, tvec, imagePoints, point
+                
     # Ransac is to be used here
 
 
@@ -58,7 +61,7 @@ def get_8_closest_cyclic(target_point, point_list):
     x0, y0 = target_point
     # Add some condition so that there are no points at the ends of the picture
     # Should add determinant or some property of rectangle here, to be implemneted later especially for the non - ideal images
-    if not(0.25 * IMAGE_SIZE[1] < x0 < 0.75 * IMAGE_SIZE[1] and 0.25 * IMAGE_SIZE[0] < y0 < 0.75 * IMAGE_SIZE[0]):
+    if not(0.30 * IMAGE_SIZE[1] < x0 < 0.60 * IMAGE_SIZE[1] and 0.30 * IMAGE_SIZE[0] < y0 < 0.60 * IMAGE_SIZE[0]):
         return None
 
     # Step 1: Get 8 closest (excluding the point itself)

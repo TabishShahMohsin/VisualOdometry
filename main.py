@@ -2,15 +2,10 @@ from hough_corner_detector import HoughCornerDetecter
 import cv2
 import numpy as np
 from pnp_grid_ransac import ransac
+from config import HEIGHT, WIDTH, K, distCoeffs
 import config
 import matplotlib.pyplot as plt
 
-HEIGHT = 15 # in centimeters
-WIDTH = 10
-fx = fy = 800
-cx = cy = 400
-K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
-distCoeffs = np.zeros((4, 1), dtype=np.float32) # Don't change this line, this was after hours of debugging
 
 
 def run_hough_lines_on_video(video_path):
@@ -22,11 +17,8 @@ def run_hough_lines_on_video(video_path):
 
     processor = HoughCornerDetecter()
 
-    t_total = np.zeros((3, 1))
-    trajectory = [t_total]
-    yaw_trajectory = [0]
-    prev_rvec = np.zeros((3, 1))
-    prev_tvec = np.zeros((3, 1))
+    initial_pose = np.eye(4)
+    trajectory = [initial_pose]
 
     while True:
         ret, frame = cap.read()
@@ -36,60 +28,93 @@ def run_hough_lines_on_video(video_path):
         intersections = processor.process_image(frame)
         for x, y in intersections:
             cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)
-        # print("intersection_count: ", len(intersections))
 
-        prev_rvec, prev_tvec, imagePoints, point = ransac(intersections, prev_rvec, prev_tvec)
+        rvec, tvec, imagePoints, point = ransac(intersections)
+        # print("ccs_Yaw:", np.rad2deg(rvec)[2])
+        # print("ccs_roll:", np.rad2deg(rvec)[0])
+        # print("ccs_pitch:", np.rad2deg(rvec)[1])
+        # rvec = wrap_centered(rvec, np.pi)
 
-        rvec, tvec = inv(prev_rvec, prev_tvec)
+        R, _ = cv2.Rodrigues(rvec)
+        c_pose = np.eye(4)
+        c_pose[:3, :3] = R
+        c_pose[:3, 3] = tvec.ravel()
 
+        pose = np.linalg.inv(c_pose)
 
-        # print('tvec:', tvec, '\n', 'trajectory:',  trajectory)
-        x, y, z, yaw = translation_delta(tvec, trajectory[-1], rvec[2], yaw_trajectory[-1])
-        print('x, y, z, yaw:', x, y, z, yaw)
+        # print("x:", wrap_centered(pose[0][3], HEIGHT))
 
-        # print(rvec, tvec, sep='\n') 
-        trajectory.append(trajectory[-1] + np.array([x, y, z]))
-        yaw_trajectory.append(yaw_trajectory[-1] + yaw)
-        # print(trajectory)
-        print('current coordinates', trajectory[-1])
-        print('current_yaw', yaw_trajectory[-1])
+        # delta = find_delta(pose, trajectory[-1])
+        delta = find_delta(pose, trajectory[-1])
 
+        # trajectory.append(trajectory[-1] @ delta)
+        trajectory.append(delta)
 
         for i, pt in enumerate(imagePoints):
             cv2.circle(frame, (int(pt[0]), int(pt[1])), int((i + 1) * 15 / 4), (0, 255, 0), -1)
         cv2.circle(frame, (point[0], point[1]), 7, (255, 0, 0), -1)
         cv2.imshow('Hough Corner Detection', frame)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        # if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit early
-        #     break
+        if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit early
+            break
     cap.release()
     cv2.destroyAllWindows()
     return trajectory
 
-def translation_delta(final_tvec: np.array, initial_tvec:np.array, final_yaw: np.array, initial_yaw:np.array) -> np.array:
+def find_delta(final_pose_ocs, initial_pose) -> np.array:
+    # 1. Calculate the relative motion between local poses
+    # This delta's translation might have a large jump if we crossed a tile boundary
+    # delta_pose = np.linalg.inv(initial_pose) @ final_pose_ocs
+    
+    # Uncorrected new pose
+    # uncorrected_new_pose = initial_pose @ delta_pose
+
+    world_displacement = final_pose_ocs[:3, 3] - initial_pose[:3, 3]
+
+    world_displacement[0] = wrap_centered(world_displacement[0], HEIGHT)
+    world_displacement[1] = wrap_centered(world_displacement[1], WIDTH)
+
+    corrected_position = initial_pose[:3, 3] + world_displacement
+    print("Initial Pose:", np.rad2deg(cv2.Rodrigues(initial_pose[:3, :3])[0]))
+    print("Final Pose:", np.rad2deg(cv2.Rodrigues(final_pose_ocs[:3, :3])[0]))
+    print("World displacement:", np.round(world_displacement, 2))
+
+    final_new_pose = np.copy(final_pose_ocs)
+    final_new_pose[:3, 3] = corrected_position
+    return final_new_pose
+
+
+    
+    # 2. Get the rotation part of the delta
+    R_delta = delta_pose[:3, :3]
+    
+    # 3. Get the translation part and wrap it correctly
+    # This is the key step: wrap the raw translation delta
+    t_delta = delta_pose[:3, 3]
+    t_delta_wrapped_x = wrap_centered(t_delta[0], WIDTH)
+    t_delta_wrapped_y = wrap_centered(t_delta[1], HEIGHT)
+    
+    # 4. Reconstruct the corrected delta_pose
+    corrected_delta_pose = np.eye(4)
+    corrected_delta_pose[:3, :3] = R_delta
+    corrected_delta_pose[0, 3] = t_delta_wrapped_x
+    corrected_delta_pose[1, 3] = t_delta_wrapped_y
+    corrected_delta_pose[2, 3] = t_delta[2] # Z is not wrapped
+
+    return corrected_delta_pose
 
     # Making z +ve
-    sign_i = 1 if initial_tvec[2] > 0 else -1
-    sign_f = 1 if final_tvec[2] > 0 else -1
+    # sign_i = 1 if initial_pose[2][3] > 0 else -1
+    # initial_pose = initial_pose * sign_i
+    # sign_f = 1 if final_pose[2][3] > 0 else -1
+    # final_pose = final_pose * sign_f
+    delta_pose = np.linalg.inv(initial_pose) @ final_pose
+    delta_pose[0][3] = wrap_centered(delta_pose[0][3], WIDTH)
+    delta_pose[1][3] = wrap_centered(delta_pose[1][3], HEIGHT)
+    return delta_pose
 
-    initial_tvec = initial_tvec * sign_i
-    final_tvec = final_tvec * sign_f
-
-    initial_yaw = initial_yaw * sign_i
-    final_yaw = final_yaw * sign_f
-
-    print('final_x:', final_tvec[0], 'initial_x', initial_tvec[0])
-    x = wrap_centered(final_tvec[0] - initial_tvec[0], config.HEIGHT)
-    y = wrap_centered(final_tvec[1] - initial_tvec[1], config.WIDTH)
-    z = final_tvec[2] - initial_tvec[2] 
-    yaw = wrap_centered(final_yaw - initial_yaw, np.pi / 2)
-    # print('x, y, z:', x, y, z)
-    return np.round(x, 5), np.round(y, 5), np.round(z, 5), np.round(yaw, 5)
-
+    
 def wrap_centered(value, max_value):
     return ((value + max_value / 2) % max_value) - max_value / 2
-    
 
 
 def show_trajectory(trajectory):
@@ -99,16 +124,12 @@ def show_trajectory(trajectory):
     Args:
         trajectory (list): List of [x, y, z] points.
     """
-    if not trajectory:
-        print("Trajectory is empty.")
-        return
-
     trajectory = np.array(trajectory)
-    if trajectory.shape[1] != 3:
-        print("Only 3D trajectories supported.")
-        return
 
-    x, y, z = trajectory[:, 0], trajectory[:, 1], trajectory[:, 2]
+    # x, y, z = trajectory[0, 3], trajectory[1, 3], trajectory[1, 3]
+    x = [pose[0, 3] for pose in trajectory]
+    y = [pose[1, 3] for pose in trajectory]
+    z = [pose[2, 3] for pose in trajectory]
 
     fig = plt.figure(figsize=(16, 12))
     ax = fig.add_subplot(111, projection='3d')
@@ -132,27 +153,78 @@ def show_trajectory(trajectory):
     ax.legend()
     plt.show()
 
+def visualize_trajectory_with_poses(
+    poses: list[np.ndarray],
+    axis_length: float = 10,
+    skip_frames: int = 15
+):
+    """
+    Visualizes a 3D trajectory path and the camera's orientation at intervals.
 
+    Args:
+        poses (list[np.ndarray]): A list of 4x4 pose matrices (T_world_from_camera).
+        axis_length (float): The visual length of the orientation axes.
+        skip_frames (int): The number of frames to skip between drawing pose axes.
+    """
+    if not poses:
+        print("Warning: The provided list of poses is empty.")
+        return
 
-def inv(rvec_oc, tvec_oc):
-    # return rvec_oc, tvec_oc
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Extract the trajectory path (translation components)
+    path = np.array([p[:3, 3] for p in poses])
+
+    # Plot the full trajectory path
+    ax.plot(path[:, 0], path[:, 1], path[:, 2], label='Trajectory Path', color='cyan')
+
+    # Plot the orientation axes for a subset of poses
+    for i, pose in enumerate(poses):
+        if i % skip_frames != 0:
+            continue
+            
+        # Origin of the camera's coordinate system in the world frame
+        origin = pose[:3, 3]
+        
+        # Rotation matrix (orientation of the camera)
+        R = pose[:3, :3]
+        
+        # Direction of the camera's axes in the world frame
+        x_axis = R[:, 0]
+        y_axis = R[:, 1]
+        z_axis = R[:, 2]
+
+        # Draw the axes using quiver plots
+        ax.quiver(origin[0], origin[1], origin[2], x_axis[0], x_axis[1], x_axis[2],
+                  length=axis_length, color='r', label='X-axis' if i == 0 else "")
+        ax.quiver(origin[0], origin[1], origin[2], y_axis[0], y_axis[1], y_axis[2],
+                  length=axis_length, color='g', label='Y-axis' if i == 0 else "")
+        ax.quiver(origin[0], origin[1], origin[2], z_axis[0], z_axis[1], z_axis[2],
+                  length=axis_length, color='b', label='Z-axis' if i == 0 else "")
+
+    # Mark the start and end points
+    ax.scatter(path[0, 0], path[0, 1], path[0, 2], color='lime', marker='o', s=100, label='Start')
+    ax.scatter(path[-1, 0], path[-1, 1], path[-1, 2], color='magenta', marker='*', s=150, label='End')
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title('Camera Trajectory and Pose Visualization')
+    ax.legend()
+    ax.grid(True)
     
-    # Convert rvec to rotation matrix
-    R_oc, _ = cv2.Rodrigues(rvec_oc)
+    # Set aspect ratio to be equal
+    try:
+        ax.set_aspect('equal')
+    except NotImplementedError:
+        # A fallback for some matplotlib versions
+        ax.set_box_aspect([1, 1, 1])
 
-    # Invert rotation (R_co = R_oc.T)
-    R_co = R_oc.T
-
-    # Invert translation (t_co = -R_co @ t_oc)
-    tvec_co = -R_co @ tvec_oc
-
-    # Convert inverted rotation matrix back to rvec
-    rvec_co, _ = cv2.Rodrigues(R_co)
-
-    return rvec_co, tvec_co
-
+    plt.show()
 
 if __name__ == "__main__":
     import sys
     traj = run_hough_lines_on_video(sys.argv[1])  # Change to your video file path
-    show_trajectory(traj)
+    visualize_trajectory_with_poses(traj)
+    # show_trajectory(traj)
