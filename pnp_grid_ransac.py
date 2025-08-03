@@ -4,8 +4,11 @@ import numpy as np
 import random
 from config import HEIGHT, WIDTH, K, IMAGE_SIZE
 import cv2
+from project_points import proj_pts
+
 distCoeffs = np.zeros((1, 4))  # or use your actual distortion
 distCoeffs = np.asarray(distCoeffs, dtype=np.float64)
+
 
 def ransac(intersections:list) -> np.array:
     # This function should take the intersections and return a np.array
@@ -35,17 +38,31 @@ def ransac(intersections:list) -> np.array:
                 points[(i + 2) % 8],  # corresponding to p3
             ], dtype=np.float32)
             try:
-                success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None)
+                # Initial estimate
+                success, rvec, tvec = cv2.solvePnP(
+                    objectPoints, imagePoints, K, None
+                )
+                if success:
+                    points = proj_pts(rvec[0], rvec[1], rvec[2], tvec[0], tvec[1], tvec[2])
+                    # return rvec, tvec, points, point
+                    return rvec, tvec, imagePoints, point
+
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None)
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_SQPNP)
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_IPPE)
+                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_ITERATIVE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_AP3P)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_IPPE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True)
-                # PNP is failing in many cases
-                # t = np.rint(tvec % np.array([[10], [15], [1]])).astype(np.int16)
-                # r = np.rint(np.rad2deg(rvec) % np.array([180])).astype(np.int16)
-                # if success:
-                #     print('t', t,'\n', 'r',  r)
+                # success, rvec, tvec = solve_pnp_scipy(objectPoints, imagePoints, K, None)
+                # Use pycolmap's absolute pose solver
+                    # PNP is failing in many cases
+                    # t = np.rint(tvec % np.array([[10], [15], [1]])).astype(np.int16)
+                    # r = np.rint(np.rad2deg(rvec) % np.array([180])).astype(np.int16)
+
+                    #     print('t', t,'\n', 'r',  r)
             except:
                 pass
             else:
@@ -55,7 +72,11 @@ def ransac(intersections:list) -> np.array:
     # Ransac is to be used here
 
 
-
+def refine_pose(params, objectPoints, imagePoints, K):
+    rvec = params[:3]
+    tvec = params[3:]
+    proj, _ = cv2.projectPoints(objectPoints, rvec, tvec, K, None)
+    return (proj.squeeze() - imagePoints).ravel()
 
 def get_8_closest_cyclic(target_point, point_list):
     x0, y0 = target_point

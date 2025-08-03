@@ -36,11 +36,22 @@ def run_hough_lines_on_video(video_path):
         # rvec = wrap_centered(rvec, np.pi)
 
         R, _ = cv2.Rodrigues(rvec)
+        # if wrap_centered(rvec, np.pi / 2) > :
+        # print(rvec)
         c_pose = np.eye(4)
         c_pose[:3, :3] = R
         c_pose[:3, 3] = tvec.ravel()
 
         pose = np.linalg.inv(c_pose)
+        # print(pose[:, 0])
+        # if pose[:, 0][0] < 0:
+        #     flip_xy = np.array([
+        #         [-1,  0,  0, 0],
+        #         [ 0, -1,  0, 0],
+        #         [ 0,  0,  1, 0],
+        #         [ 0,  0,  0, 1]
+        #     ])
+        #     pose = flip_xy @ pose
 
         # print("x:", wrap_centered(pose[0][3], HEIGHT))
 
@@ -67,6 +78,13 @@ def find_delta(final_pose_ocs, initial_pose) -> np.array:
     
     # Uncorrected new pose
     # uncorrected_new_pose = initial_pose @ delta_pose
+
+
+    # relative_pose = np.linalg.inv(initial_pose) @ final_pose_ocs
+    # # Wrap translation components
+    # relative_pose[0, 3] = wrap_centered(relative_pose[0, 3], WIDTH)
+    # relative_pose[1, 3] = wrap_centered(relative_pose[1, 3], HEIGHT)
+    # return relative_pose
 
     world_displacement = final_pose_ocs[:3, 3] - initial_pose[:3, 3]
 
