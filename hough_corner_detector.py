@@ -54,22 +54,24 @@ class HoughCornerDetecter:
 
         # Parameters for Gaussian Blur
         self.blur_kernel = (5, 5)
-        self.blur_sigma = 1.0
+        self.blur_sigma = 1
 
         # Parameters for Canny Edge Detector
-        self.canny_lower_thresh = 3  # Increased default for better edge detection
-        self.canny_higher_thresh = 9 # Increased default for better edge detection
+        self.canny_lower_thresh = 4 # Increased default for better edge detection
+        self.canny_higher_thresh = 12 # Increased default for better edge detection
 
         # Parameters for HoughLinesP
         self.hough_rho = 1              # Distance resolution of the accumulator in pixels.
         self.hough_theta = np.pi / 180  # Angle resolution of the accumulator in radians.
-        self.hough_threshold = 100      # Accumulator threshold parameter. Only lines that get enough votes are returned.
+        # self.hough_threshold = 100      # Accumulator threshold parameter. Only lines that get enough votes are returned.
+        self.hough_threshold = 200      # Accumulator threshold parameter. Only lines that get enough votes are returned.
         self.hough_min_line_length = 90 # Minimum line length. Line segments shorter than this are rejected.
         self.hough_max_line_gap = 10    # Maximum allowed gap between line segments to treat them as single line.
 
         # Parameters for Intersection Detection
         self.min_determinant_threshold = 3000  # Avoid division by small numbers for parallel lines
         self.intersection_buffer = 90       # A small buffer around line endpoints for intersection validation
+        # self.intersection_buffer = 900       # A small buffer around line endpoints for intersection validation
 
     def _find_line_intersections(self, lines, img_shape):
         if lines is None:
@@ -97,18 +99,34 @@ class HoughCornerDetecter:
         Args:
             img_path (Path): The path to the input image.
         """
+        # Change this first if any problem especially with the camera matrix
+        # img = cv2.resize(img, (640, 480))
+        # Invert if lines are dark
+        # inverted = cv2.bitwise_not(img)
+        # # Top-hat to extract dark lines
+        # kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7,7))
+        # tophat = cv2.morphologyEx(inverted, cv2.MORPH_TOPHAT, kernel)
+        # cv2.imshow('tophat', tophat)
 
         # 1. Grayscale Conversion
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+        thresh = cv2.adaptiveThreshold(gray, 255,
+                                    cv2.ADAPTIVE_THRESH_MEAN_C,
+                                    cv2.THRESH_BINARY_INV,
+                                    15, 2.5)
+        # cv2.imshow('thresh', thresh)
+        # cv2.waitKey(0)
+
         # 2. Gaussian Blur to reduce noise
-        blurred = cv2.GaussianBlur(gray, self.blur_kernel, self.blur_sigma)
+        blurred = cv2.GaussianBlur(thresh, self.blur_kernel, self.blur_sigma)
+
 
         # 3. Canny Edge Detection
         edges = cv2.Canny(blurred, self.canny_lower_thresh, self.canny_higher_thresh)
 
         # 4. Hough Line Transform (Probabilistic)
-        lines = cv2.HoughLinesP(edges, self.hough_rho, self.hough_theta,
+        lines = cv2.HoughLinesP(thresh, self.hough_rho, self.hough_theta,
                                 self.hough_threshold,
                                 minLineLength=self.hough_min_line_length,
                                 maxLineGap=self.hough_max_line_gap)
@@ -117,4 +135,5 @@ class HoughCornerDetecter:
         intersections = self._find_line_intersections(lines, img.shape)
         intersections = self._cluster(intersections)
 
+        # return intersections, lines, edges
         return intersections

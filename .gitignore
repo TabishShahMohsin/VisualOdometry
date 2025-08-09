@@ -1,0 +1,24 @@
+# Ignore everything
+*
+
+# Allow all directories so included files inside them are not ignored
+!*/
+
+# Allow Python files anywhere
+!**/*.py
+
+# Allow README files (case-insensitive, with or without extension)
+!README
+!README.*
+!readme
+!readme.*
+
+# Allow poetry.lock
+!poetry.lock
+
+# Allow LICENSE files (case-insensitive)
+!LICENSE
+!LICENSE.*
+
+# Optional: keep .gitignore itself
+!.gitignore

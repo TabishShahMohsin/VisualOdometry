@@ -6,10 +6,6 @@ from config import HEIGHT, WIDTH, K, IMAGE_SIZE
 import cv2
 from project_points import proj_pts
 
-distCoeffs = np.zeros((1, 4))  # or use your actual distortion
-distCoeffs = np.asarray(distCoeffs, dtype=np.float64)
-
-
 def ransac(intersections:list) -> np.array:
     # This function should take the intersections and return a np.array
 
@@ -18,10 +14,10 @@ def ransac(intersections:list) -> np.array:
     
     # The rest choices would be like 180 roll, 180 pitch, or simply translation.
     objectPoints = np.array([
-        [0, 0, 0],               # p1
-        [0, WIDTH, 0],           # p2
-        [-HEIGHT, WIDTH, 0],      # p3
-        [-HEIGHT, 0, 0]           # p4
+        [0, 0, 0],                # p1: bottom-left
+        [WIDTH, 0, 0],            # p2: bottom-right
+        [WIDTH, HEIGHT, 0],       # p3: top-right
+        [0, HEIGHT, 0]            # p4: top-left
     ], dtype=np.float32)
 
     for point in intersections:
@@ -38,51 +34,33 @@ def ransac(intersections:list) -> np.array:
                 points[(i + 2) % 8],  # corresponding to p3
             ], dtype=np.float32)
             try:
-                # Initial estimate
-                success, rvec, tvec = cv2.solvePnP(
-                    objectPoints, imagePoints, K, None
-                )
-                if success:
-                    points = proj_pts(rvec[0], rvec[1], rvec[2], tvec[0], tvec[1], tvec[2])
-                    # return rvec, tvec, points, point
-                    return rvec, tvec, imagePoints, point
-
-                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None)
-                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_SQPNP)
-                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_IPPE)
-                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_ITERATIVE)
-                # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None, flags=cv2.SOLVEPNP_AP3P)
+                success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, None)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_ITERATIVE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True, flags=cv2.SOLVEPNP_IPPE)
                 # success, rvec, tvec = cv2.solvePnP(objectPoints, imagePoints, K, distCoeffs, rvec=prev_r, tvec=prev_t, useExtrinsicGuess=True)
-                # success, rvec, tvec = solve_pnp_scipy(objectPoints, imagePoints, K, None)
-                # Use pycolmap's absolute pose solver
-                    # PNP is failing in many cases
-                    # t = np.rint(tvec % np.array([[10], [15], [1]])).astype(np.int16)
-                    # r = np.rint(np.rad2deg(rvec) % np.array([180])).astype(np.int16)
-
-                    #     print('t', t,'\n', 'r',  r)
+                # PNP is failing in many cases
+                # t = np.rint(tvec % np.array([[10], [15], [1]])).astype(np.int16)
+                # r = np.rint(np.rad2deg(rvec) % np.array([180])).astype(np.int16)
+                # if success:
+                #     print('t', t,'\n', 'r',  r)
             except:
                 pass
             else:
                 if success:
-                    return rvec, tvec, imagePoints, point
+                    pts = proj_pts(rvec, tvec)
+                    return rvec, tvec, pts, point
                 
     # Ransac is to be used here
 
 
-def refine_pose(params, objectPoints, imagePoints, K):
-    rvec = params[:3]
-    tvec = params[3:]
-    proj, _ = cv2.projectPoints(objectPoints, rvec, tvec, K, None)
-    return (proj.squeeze() - imagePoints).ravel()
+
 
 def get_8_closest_cyclic(target_point, point_list):
     x0, y0 = target_point
     # Add some condition so that there are no points at the ends of the picture
     # Should add determinant or some property of rectangle here, to be implemneted later especially for the non - ideal images
-    if not(0.30 * IMAGE_SIZE[1] < x0 < 0.60 * IMAGE_SIZE[1] and 0.30 * IMAGE_SIZE[0] < y0 < 0.60 * IMAGE_SIZE[0]):
+    if not(0.25 * IMAGE_SIZE[1] < x0 < 0.75 * IMAGE_SIZE[1] and 0.25 * IMAGE_SIZE[0] < y0 < 0.75 * IMAGE_SIZE[0]):
         return None
 
     # Step 1: Get 8 closest (excluding the point itself)
@@ -103,4 +81,3 @@ def get_8_closest_cyclic(target_point, point_list):
     
 
     return ordered
-
