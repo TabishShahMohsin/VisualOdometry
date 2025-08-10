@@ -1,178 +1,201 @@
-"""
-Pose-estimation demo
-–––––––––––––––––––
-Render an artificial tiled-grid, compare it with an edge-image of a real grid,
-and optimise the six camera pose parameters (roll, pitch, yaw, tx, ty, tz)
-so the two grids align.  The objective function is a one-way Chamfer distance.
-"""
-
 import cv2
 import numpy as np
-from scipy.optimize import differential_evolution    # global optimiser
-# --- CONFIG --------------------------------------------------------------- #
+from scipy.optimize import minimize
 
-IMAGE_SIZE      = 800                 # square canvas, 800×800 px
-FX = FY         = 800                 # focal length in pixels
-CX = CY         = IMAGE_SIZE // 2     # principal point at image centre
-TILE_W, TILE_H  = 5, 3                # physical tile size (cm)
-ROWS, COLS      = 25, 15              # grid dimensions
-DEBUG_WINDOWS   = False               # toggle GUI pop-ups
+def rotation_matrix(yaw):
+    R_c = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+    yaw_rad = np.radians(yaw)
+    Rz = np.array([
+        [np.cos(yaw_rad), -np.sin(yaw_rad), 0],
+        [np.sin(yaw_rad), np.cos(yaw_rad), 0],
+        [0, 0, 1]
+    ])
+    return Rz @ R_c
 
-# --- MATH / GEOMETRY ------------------------------------------------------ #
+def project_points(points_3d, R, t, K):
+    Rt = R.T
+    t_inv = -Rt @ t
+    points_cam = (Rt @ points_3d.T).T + t_inv
+    mask = points_cam[:, 2] > 0
+    points_proj = (K @ points_cam.T).T
+    points_2d = points_proj[:, :2] / points_proj[:, 2:3]
+    return points_2d.astype(np.int32), mask
 
-def rotation_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
-    """
-    Build a 3 × 3 rotation matrix from roll-pitch-yaw (°).
-    Uses aerospace convention (XYZ → roll, pitch, yaw).  A final
-    static correction matrix flips Y and Z so the virtual camera
-    “looks down” like OpenCV’s conventional view.
-    """
-    # Fixed “look-down” correction.
-    Rc = np.diag([ 1, -1, -1 ])
+def create_grid_lines(tile_w=10, tile_h=15, rows=8, cols=8):
+    grid_cx = cols * tile_w / 2
+    grid_cy = rows * tile_h / 2
+    lines = []
+    
+    # Horizontal lines
+    for i in range(rows + 1):
+        y = i * tile_h - grid_cy
+        lines.append([[-grid_cx, y, 0], [grid_cx, y, 0]])
+    
+    # Vertical lines
+    for j in range(cols + 1):
+        x = j * tile_w - grid_cx
+        lines.append([[x, -grid_cy, 0], [x, grid_cy, 0]])
+    
+    return np.array(lines)
 
-    # Convert to radians.
-    roll, pitch, yaw = np.radians([roll, pitch, yaw])
+def sample_line_segments(segments_2d, step_px=5):
+    points = []
+    for seg in segments_2d:
+        p1, p2 = seg[0], seg[1]
+        length = np.linalg.norm(p2 - p1)
+        if length == 0:
+            continue
+        num_samples = max(2, int(length / step_px))
+        t = np.linspace(0, 1, num_samples)
+        x = p1[0] * (1 - t) + p2[0] * t
+        y = p1[1] * (1 - t) + p2[1] * t
+        points.extend(np.column_stack((x, y)))
+    return np.array(points)
 
-    # Intrinsic rotations about camera axes.
-    Rx = np.array([[1, 0, 0],
-                   [0, np.cos(roll), -np.sin(roll)],
-                   [0, np.sin(roll),  np.cos(roll)]])
-    Ry = np.array([[ np.cos(pitch), 0, np.sin(pitch)],
-                   [ 0,             1, 0            ],
-                   [-np.sin(pitch), 0, np.cos(pitch)]])
-    Rz = np.array([[np.cos(yaw), -np.sin(yaw), 0],
-                   [np.sin(yaw),  np.cos(yaw), 0],
-                   [0,            0,           1]])
-
-    # Final rotation:  R = Rz · Ry · Rx · Rc
-    return Rz @ Ry @ Rx @ Rc
-
-
-def project_points(points_3d: np.ndarray,
-                   R: np.ndarray,
-                   t: np.ndarray,
-                   K: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Manual alternative to cv2.projectPoints: transform 3-D world points
-    into the camera frame, keep positive-Z points, and apply perspective
-    division to get pixel coords.
-    """
-    Rt = R.T              # inverse rotation
-    t_cam = -Rt @ t       # inverse translation
-
-    points_cam = (Rt @ points_3d.T).T + t_cam          # 3-D in camera frame
-    mask = points_cam[:, 2] > 1e-6                     # Z>0 → in front
-
-    proj = (K @ points_cam.T).T                        # homogeneous pixels
-    pts_2d = proj[:, :2] / proj[:, 2:3]                # divide by z
-    return pts_2d.astype(np.int32), mask
-
-
-# --- RENDERER ------------------------------------------------------------- #
-
-def draw_grid(roll: float, pitch: float, yaw: float,
-              tx: float, ty: float, tz: float) -> np.ndarray:
-    """
-    Render a wireframe grid (as white edges on black background) given a
-    camera pose.  Grid lies on the world-XY plane (Z = 0).
-    """
-    # Camera intrinsics matrix.
-    K = np.array([[FX,  0, CX],
-                  [ 0, FY, CY],
-                  [ 0,  0,  1]])
-
-    R = rotation_matrix(roll, pitch, yaw)
+def enhanced_loss(params, edge_dt, K, grid_lines_3d, img_shape):
+    tx, ty, tz, yaw = params
+    R = rotation_matrix(yaw)
     t = np.array([tx, ty, tz])
+    
+    segs_2d = []
+    visible_segments = 0
+    total_dt = 0
+    valid_points = 0
+    
+    # Max distance to consider (in pixels)
+    MAX_DIST = 20.0
+    
+    for line in grid_lines_3d:
+        pts_2d, mask = project_points(line, R, t, K)
+        
+        # Check if both points are in front of camera
+        if not mask.all():
+            continue
+            
+        # Check if at least one point is within image bounds
+        in_bounds = False
+        for pt in pts_2d:
+            if 0 <= pt[0] < img_shape[1] and 0 <= pt[1] < img_shape[0]:
+                in_bounds = True
+                break
+        if not in_bounds:
+            continue
+            
+        segs_2d.append(pts_2d)
+        visible_segments += 1
+        
+        # Sample points along the segment
+        sampled_points = sample_line_segments([pts_2d])
+        for pt in sampled_points:
+            x, y = int(pt[0]), int(pt[1])
+            if 0 <= x < img_shape[1] and 0 <= y < img_shape[0]:
+                dt_val = edge_dt[y, x]
+                # Clamp large distance values
+                if dt_val > MAX_DIST:
+                    dt_val = MAX_DIST
+                total_dt += dt_val
+                valid_points += 1
+    
+    # Penalty for insufficient visible segments
+    if visible_segments < 5:  # Require at least 5 visible segments
+        return 1e6
+    
+    # Penalty for too few sampled points
+    if valid_points < 20:
+        return 1e6
+    
+    # Calculate mean distance transform value
+    mean_dt = total_dt / valid_points
+    
+    # Regularization terms
+    z_reg = 0.01 * abs(tz - 100)  # Prefer z around 100cm
+    yaw_reg = 0.001 * abs(yaw)     # Prefer small yaw angles
+    
+    # Weight by visibility (more segments = better)
+    visibility_weight = visible_segments / len(grid_lines_3d)
+    
+    # Combine components
+    loss = mean_dt / visibility_weight + z_reg + yaw_reg
+    
+    return loss
 
-    # Physical extent of the grid, centred at origin.
-    grid_cx = COLS * TILE_W / 2
-    grid_cy = ROWS * TILE_H / 2
-
-    canvas = np.zeros((IMAGE_SIZE, IMAGE_SIZE), np.uint8)
-
-    for r in range(ROWS):
-        for c in range(COLS):
-            # Four 3-D corners of one rectangle.
-            x0 = c * TILE_W - grid_cx
-            y0 = r * TILE_H - grid_cy
-            quad = np.array([[x0,             y0,              0],
-                             [x0 + TILE_W,    y0,              0],
-                             [x0 + TILE_W,    y0 + TILE_H,     0],
-                             [x0,             y0 + TILE_H,     0]])
-
-            pts_2d, valid = project_points(quad, R, t, K)
-            if valid.all():                                   # all corners visible
-                cv2.polylines(canvas, [pts_2d], True, 255, 1) # white lines
-
-    return canvas
-
-
-# --- CHAMFER LOSS --------------------------------------------------------- #
-
-def chamfer_loss(edge_a: np.ndarray, edge_b: np.ndarray) -> float:
-    """
-    One-way Chamfer loss: average *squared* distance from every white
-    pixel in edge_a to the nearest white pixel in edge_b.
-    Both inputs must already be 0/255 edge maps (e.g. Canny output).
-    """
-    if not np.any(edge_a) or not np.any(edge_b):
-        return float('inf')  # degenerate case
-
-    dt = cv2.distanceTransform(255 - edge_b, cv2.DIST_L2, 3)  # distance image
-    return np.mean(dt[edge_a > 0] ** 2)
-
-
-# --- OBJECTIVE FUNCTION -------------------------------------------------- #
-
-def objective(pose: np.ndarray, target_edges: np.ndarray) -> float:
-    """
-    Wrapper for the optimiser:  pose → synthetic grid → edges → Chamfer loss.
-    """
-    roll, pitch, yaw, tx, ty, tz = pose
-    synthetic = draw_grid(roll, pitch, yaw, tx, ty, tz)
-    synthetic_edges = cv2.Canny(synthetic, 100, 200)   # edge map
-
-    if DEBUG_WINDOWS:                                  # optional visual check
-        cv2.imshow("synthetic", synthetic_edges)
-        cv2.imshow("target", target_edges)
-        cv2.waitKey(1)
-
-    return chamfer_loss(synthetic_edges, target_edges) + chamfer_loss(target_edges, synthetic_edges)
-
-
-# --- ENTRY-POINT --------------------------------------------------------- #
-
-if __name__ == "__main__":
-
-    # --- Load & preprocess the real image ------------------------------- #
-    target = cv2.imread("original.jpeg", cv2.IMREAD_GRAYSCALE)
-    target_edges = cv2.Canny(target, 100, 200)                           # edge map
-
-    # --- Global search bounds (deg / cm) -------------------------------- #
-    PARAM_BOUNDS = [(-10,  10),   # roll
-                    (-10,  10),   # pitch
-                    (-270, 270),  # yaw
-                    (-10,  10),   # tx
-                    (-10,  10),   # ty
-                    (  1,  50)]   # tz (depth)
-
-    # --- Run Differential Evolution global optimiser -------------------- #
-    result = differential_evolution(
-        objective,
-        bounds=PARAM_BOUNDS,
-        args=(target_edges,),
-        maxiter=100,          # iterations per population ≈ evaluations/NP
-        popsize=15,
-        polish=True,          # local refine at the end
-        disp=True             # progress in console
+def main():
+    # Load image and compute edge map
+    img = cv2.imread('datasets/synthetic/pics/image_2.jpg')  # Replace with your image path
+    if img is None:
+        print("Error: Image not found")
+        return
+    
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+    dist_transform = cv2.distanceTransform(255 - edges, cv2.DIST_L2, 3)
+    
+    # Normalize distance transform for visualization
+    dt_vis = cv2.normalize(dist_transform, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+    cv2.imshow('Distance Transform', dt_vis)
+    
+    # Camera intrinsics
+    h, w = img.shape[:2]
+    fx = fy = min(h, w) * 0.8  # Adjust based on image size
+    cx, cy = w // 2, h // 2
+    K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    
+    # Create 3D grid lines
+    grid_lines_3d = create_grid_lines()
+    
+    # Initial guess with reasonable constraints
+    initial_params = [0, 0, 100, 0]  # [tx, ty, tz, yaw]
+    
+    # Set parameter bounds (x, y, z, yaw)
+    bounds = [
+        (-100, 100),   # tx: ±100 cm
+        (-100, 100),   # ty: ±100 cm
+        (50, 300),     # tz: 50-300 cm
+        (-45, 45)      # yaw: ±45 degrees
+    ]
+    
+    # Optimize with bounds
+    result = minimize(
+        enhanced_loss,
+        initial_params,
+        args=(dist_transform, K, grid_lines_3d, img.shape),
+        method='L-BFGS-B',
+        bounds=bounds,
+        options={'maxiter': 100, 'ftol': 1e-4}
     )
-
-    print("Optimised pose  :", result.x)
-    print("Final loss      :", result.fun)
-
-    # --- Visualise alignment -------------------------------------------- #
-    aligned = draw_grid(*result.x)
-    cv2.imshow("Aligned grid", aligned)
-    cv2.imshow("Target edges", target_edges)
+    
+    print("Optimization result:")
+    print(f"Status: {result.message}")
+    print(f"Parameters: tx={result.x[0]:.2f}, ty={result.x[1]:.2f}, tz={result.x[2]:.2f}, yaw={result.x[3]:.2f}")
+    
+    # Visualize result
+    tx, ty, tz, yaw = result.x
+    R = rotation_matrix(yaw)
+    t = np.array([tx, ty, tz])
+    
+    # Draw grid lines
+    for line in grid_lines_3d:
+        pts_2d, mask = project_points(line, R, t, K)
+        if mask.all():
+            color = (0, 255, 0)  # Green for visible lines
+            cv2.line(img, tuple(pts_2d[0]), tuple(pts_2d[1]), color, 2)
+    
+    # Draw origin
+    origin_2d, visible = project_points(np.array([[0, 0, 0]]), R, t, K)
+    if visible[0]:
+        cv2.circle(img, tuple(origin_2d[0]), 8, (0, 0, 255), -1)
+    
+    # Display results
+    cv2.putText(img, f"Z: {tz:.1f}cm", (10, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    cv2.putText(img, f"Yaw: {yaw:.1f}deg", (10, 60), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    
+    cv2.imshow('Edges', edges)
+    cv2.imshow('Grid Projection', img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()

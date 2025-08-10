@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-# Future: Make it fast using njit, parallel, and make it robust
 
 
 def rotation_matrix(roll, pitch, yaw):
