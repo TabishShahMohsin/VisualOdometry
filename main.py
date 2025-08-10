@@ -13,7 +13,6 @@ import os
 
 def run_hough_lines_on_video(video_path):
     cap = cv2.VideoCapture(video_path)
-    # cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Error: Couldn't open video.")
         return
@@ -26,9 +25,45 @@ def run_hough_lines_on_video(video_path):
     while True:
         ret, frame = cap.read()
         if not ret:
-            break  # End of video
+            break
 
         intersections = processor.process_image(frame)
+        if not intersections:
+            continue
+
+        result = ransac(intersections)
+        if result is None:
+            continue
+
+        rvec, tvec, imagePoints, point = result
+        
+        # Convert rvec to a full rotation matrix
+        R, _ = cv2.Rodrigues(rvec)
+
+        # This is the pose of the WORLD coordinate system relative to the CAMERA
+        # R_cam_world = R
+        # t_cam_world = tvec
+
+        # To get the camera's pose in the world, we need to invert this transformation
+        # R_world_cam = R.T
+        # t_world_cam = -R.T @ tvec
+
+        # --- Pose Stabilization ---
+        # solvePnP can be unstable and flip 180 degrees. We check for this.
+        if last_R is not None:
+            # Check if the z-axis of the new rotation is flipped compared to the last one
+            if np.dot(R[:, 2], last_R[:, 2]) < 0:
+                # If it's flipped, rotate it 180 degrees around its own z-axis
+                R_flip = np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]])
+                R = R @ R_flip
+                tvec = R_flip @ tvec # Also correct the translation
+
+        # Calculate camera position in world coordinates
+        camera_position = -R.T @ tvec
+        trajectory.append(camera_position.flatten())
+        last_R = R
+        
+        # --- Visualization ---
         for x, y in intersections:
             cv2.circle(frame, (x, y), 9, (0, 0, 255), -1)
 
@@ -71,8 +106,9 @@ def run_hough_lines_on_video(video_path):
             cv2.circle(frame, (int(pt[0]), int(pt[1])), 7, (0, 255, 0), -1)
         cv2.circle(frame, (point[0], point[1]), 5, (255, 0, 0), -1)
         cv2.imshow('Hough Corner Detection', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit early
+        if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+            
     cap.release()
     cv2.destroyAllWindows()
     return trajectory
