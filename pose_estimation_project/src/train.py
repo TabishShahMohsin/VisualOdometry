@@ -1,8 +1,8 @@
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
-from model import PeriodNet
-from dataset import PeriodDataset
+from model import PoseNet
+from dataset import PoseDataset
 from utils import total_supervised_loss
 import os
 from tqdm import tqdm
@@ -12,17 +12,17 @@ import numpy as np
 #                             CONFIGURATION
 # ==============================================================================
 
-BACKBONE = 'mobilenet_v3_small'
+BACKBONE = 'mobilenet_v2'
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 64
-NUM_EPOCHS = 1
+BATCH_SIZE = 16 # Reduced for lower memory usage
+NUM_EPOCHS = 10
 
 DATASET_DIR = "dataset"
 IMAGE_DIR = os.path.join(DATASET_DIR, "images")
 CSV_FILE = os.path.join(DATASET_DIR, "labels.csv")
 
 MODEL_SAVE_DIR = "models"
-MODEL_SAVE_NAME = f"periodnet_{BACKBONE}_best.pth"
+MODEL_SAVE_NAME = f"posenet_{BACKBONE}_best.pth"
 
 # ==============================================================================
 #                               MAIN SCRIPT
@@ -43,21 +43,21 @@ def main():
 
     # --- Data Loading ---
     print("Loading dataset...")
-    full_dataset = PeriodDataset(csv_file=CSV_FILE, image_dir=IMAGE_DIR, use_sobel=True)
+    full_dataset = PoseDataset(csv_file=CSV_FILE, image_dir=IMAGE_DIR, use_sobel=True)
     
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0) # num_workers=0 for macOS
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0) # num_workers=0 for macOS
     
     print(f"Training set size: {len(train_dataset)}")
     print(f"Validation set size: {len(val_dataset)}")
 
     # --- Model, Optimizer, and Loss ---
     print(f"Initializing model with backbone: {BACKBONE}...")
-    model = PeriodNet(backbone=BACKBONE).to(device)
+    model = PoseNet(backbone=BACKBONE).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = total_supervised_loss
 
@@ -75,8 +75,8 @@ def main():
             labels = batch['label'].to(device)
 
             optimizer.zero_grad()
-            predicted_periods = model(images)
-            loss = criterion(predicted_periods, labels)
+            pred_periods, pred_offsets = model(images)
+            loss = criterion(pred_periods, pred_offsets, labels)
             loss.backward()
             optimizer.step()
             
@@ -94,8 +94,8 @@ def main():
                 images = batch['image'].to(device)
                 labels = batch['label'].to(device)
                 
-                predicted_periods = model(images)
-                loss = criterion(predicted_periods, labels)
+                pred_periods, pred_offsets = model(images)
+                loss = criterion(pred_periods, pred_offsets, labels)
                 val_loss += loss.item()
                 val_loop.set_postfix(loss=loss.item())
         

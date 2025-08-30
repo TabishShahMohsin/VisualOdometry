@@ -6,10 +6,11 @@ import os
 from torchvision import transforms
 import numpy as np
 
-class PeriodDataset(Dataset):
+class PoseDataset(Dataset):
     """
     Custom PyTorch Dataset for loading synthetic pose estimation data.
-    This version is designed to predict the tile periods (t_x, t_y) in pixels.
+    This version is designed to predict both the tile periods (t_x, t_y) in pixels
+    and the intra-tile offsets (tx_OCS, ty_OCS).
     """
     def __init__(self, csv_file, image_dir, transform=None, use_sobel=True):
         """
@@ -39,7 +40,8 @@ class PeriodDataset(Dataset):
     def __getitem__(self, idx):
         """
         Fetches the sample at the given index.
-        Returns a dictionary containing the image and the ground truth periods.
+        Returns a dictionary containing the image and the ground truth label 
+        (periods and offsets).
         """
         if torch.is_tensor(idx):
             idx = idx.tolist()
@@ -60,18 +62,24 @@ class PeriodDataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        # Extract parameters to calculate ground truth periods
+        # Extract parameters to calculate ground truth
         tile_w = row['tile_w']
         tile_h = row['tile_h']
         fx = row['fx']
         fy = row['fy']
         tz = row['tz']
+        label_tx = row['label_tx']
+        label_ty = row['label_ty']
 
-        # Calculate period in pixels.
+        # Calculate period in pixels
         t_x_px = (tile_w / tz) * fx
         t_y_px = (tile_h / tz) * fy
         
-        label = torch.tensor([t_x_px, t_y_px], dtype=torch.float32)
+        # The label now contains 4 values
+        label = torch.tensor([
+            t_x_px, t_y_px, 
+            label_tx, label_ty
+        ], dtype=torch.float32)
 
         sample = {'image': image, 'label': label}
         return sample

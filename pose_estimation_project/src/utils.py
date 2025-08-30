@@ -30,10 +30,25 @@ def freq_loss(pred_periods, true_periods):
     true_freq = 1.0 / true_periods
     return torch.nn.functional.huber_loss(pred_freq, true_freq, delta=0.001)
 
-def total_supervised_loss(pred_periods, true_periods, lambda_f=0.2):
+def total_period_loss(pred_periods, true_periods, lambda_f=0.2):
     """
-    Combined supervised loss.
+    Combined supervised loss for periods.
     """
     l_swap = swap_loss(pred_periods, true_periods)
     l_freq = freq_loss(pred_periods, true_periods)
     return l_swap + lambda_f * l_freq
+
+def total_supervised_loss(pred_periods, pred_offsets, true_labels, lambda_f=0.2, lambda_offset=0.1):
+    """
+    Combined supervised loss for both periods and offsets.
+    """
+    true_periods = true_labels[:, :2]
+    true_offsets = true_labels[:, 2:]
+
+    # Loss for the periods
+    l_period = total_period_loss(pred_periods, true_periods, lambda_f)
+
+    # Loss for the offsets
+    l_offset = torch.nn.functional.huber_loss(pred_offsets, true_offsets, delta=0.1)
+
+    return l_period + lambda_offset * l_offset
