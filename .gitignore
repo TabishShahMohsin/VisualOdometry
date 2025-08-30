@@ -6,6 +6,10 @@
 
 # Allow Python files anywhere
 !**/*.py
+!**/*.c
+!**/*.h
+!**/*.cpp
+!**/*.hpp
 
 # Allow README files (case-insensitive, with or without extension)
 !README

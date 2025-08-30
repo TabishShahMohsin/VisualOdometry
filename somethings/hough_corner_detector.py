@@ -64,12 +64,12 @@ class HoughCornerDetecter:
         self.hough_rho = 1              # Distance resolution of the accumulator in pixels.
         self.hough_theta = np.pi / 180  # Angle resolution of the accumulator in radians.
         # self.hough_threshold = 100      # Accumulator threshold parameter. Only lines that get enough votes are returned.
-        self.hough_threshold = 200      # Accumulator threshold parameter. Only lines that get enough votes are returned.
-        self.hough_min_line_length = 90 # Minimum line length. Line segments shorter than this are rejected.
+        self.hough_threshold = 70      # Accumulator threshold parameter. Only lines that get enough votes are returned.
+        self.hough_min_line_length = 40 # Minimum line length. Line segments shorter than this are rejected.
         self.hough_max_line_gap = 10    # Maximum allowed gap between line segments to treat them as single line.
 
         # Parameters for Intersection Detection
-        self.min_determinant_threshold = 3000  # Avoid division by small numbers for parallel lines
+        self.min_determinant_threshold = 1000  # Avoid division by small numbers for parallel lines
         self.intersection_buffer = 90       # A small buffer around line endpoints for intersection validation
         # self.intersection_buffer = 900       # A small buffer around line endpoints for intersection validation
 
@@ -109,24 +109,34 @@ class HoughCornerDetecter:
         # cv2.imshow('tophat', tophat)
 
         # 1. Grayscale Conversion
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # gray = img
 
-        thresh = cv2.adaptiveThreshold(gray, 255,
-                                    cv2.ADAPTIVE_THRESH_MEAN_C,
-                                    cv2.THRESH_BINARY_INV,
-                                    15, 2.5)
+        # thresh = cv2.adaptiveThreshold(gray, 255,
+                                    # cv2.ADAPTIVE_THRESH_MEAN_C,
+                                    # cv2.THRESH_BINARY_INV,
+                                    # 15, 2.5)
         # cv2.imshow('thresh', thresh)
         # cv2.waitKey(0)
 
+
+        # gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        # # Use CLAHE for better contrast in varied lighting
+        # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        # enhanced = clahe.apply(blur)
+        # edges = cv2.Canny(enhanced, 20, 60, apertureSize=3)
         # 2. Gaussian Blur to reduce noise
-        blurred = cv2.GaussianBlur(thresh, self.blur_kernel, self.blur_sigma)
+
+        # blurred = cv2.GaussianBlur(thresh, self.blur_kernel, self.blur_sigma)
 
 
         # 3. Canny Edge Detection
-        edges = cv2.Canny(blurred, self.canny_lower_thresh, self.canny_higher_thresh)
+        # edges = cv2.Canny(blurred, self.canny_lower_thresh, self.canny_higher_thresh)
+        edges = img
 
         # 4. Hough Line Transform (Probabilistic)
-        lines = cv2.HoughLinesP(thresh, self.hough_rho, self.hough_theta,
+        lines = cv2.HoughLinesP(edges, self.hough_rho, self.hough_theta,
                                 self.hough_threshold,
                                 minLineLength=self.hough_min_line_length,
                                 maxLineGap=self.hough_max_line_gap)
