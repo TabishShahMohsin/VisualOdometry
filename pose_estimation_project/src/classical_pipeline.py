@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from itertools import combinations
 import os
 
 # ==============================================================================
@@ -109,23 +108,40 @@ def main():
             intersections = get_intersections_from_lines(lines)
             if intersections is not None and len(intersections) >= 4:
                 try:
-                    tl_point = min(intersections, key=lambda p: np.linalg.norm(p))
-                    candidates = [p for p in intersections if not np.array_equal(p, tl_point)]
-                    if len(candidates) < 3: continue
+                    # Sort intersections by y then x to get a consistent order
+                    sorted_intersections = intersections[np.lexsort((intersections[:,0], intersections[:,1]))]
 
-                    est_w = TILE_WIDTH / (last_t_ocs[2] if last_t_ocs is not None else 50) * K[0,0]
-                    est_h = TILE_HEIGHT / (last_t_ocs[2] if last_t_ocs is not None else 50) * K[1,1]
+                    # Select a 2x2 block of tiles (3x3 internal corners) for PnP
+                    # This assumes the grid is dense enough and visible
+                    # We need 4 points for one tile, so we need 2x2 grid of intersections
+                    # Let's try to pick the top-left 2x2 block of intersections
+                    
+                    # Find the first 4 points that form a rectangle
+                    # This is still a heuristic, but more robust than previous attempts
+                    p1 = sorted_intersections[0] # Top-left most point
+                    
+                    # Find the next point in x direction (top-right of first tile)
+                    p2_candidates = [p for p in sorted_intersections if p[0] > p1[0] and abs(p[1] - p1[1]) < 10] # Same row, to the right
+                    if not p2_candidates: continue
+                    p2 = min(p2_candidates, key=lambda p: np.linalg.norm(p - (p1 + [TILE_WIDTH, 0])))
 
-                    tr = min(candidates, key=lambda p: np.linalg.norm(p - (tl_point + [est_w, 0])))
-                    bl = min(candidates, key=lambda p: np.linalg.norm(p - (tl_point + [0, est_h])))
-                    br_expected = tl_point + (tr - tl_point) + (bl - tl_point)
-                    br = min(candidates, key=lambda p: np.linalg.norm(p - br_expected))
+                    # Find the next point in y direction (bottom-left of first tile)
+                    p3_candidates = [p for p in sorted_intersections if p[1] > p1[1] and abs(p[0] - p1[0]) < 10] # Same col, below
+                    if not p3_candidates: continue
+                    p3 = min(p3_candidates, key=lambda p: np.linalg.norm(p - (p1 + [0, TILE_HEIGHT])))
 
-                    image_points = np.array([tl_point, tr, bl, br], dtype=np.float32)
+                    # Find the fourth point (bottom-right of first tile)
+                    p4_expected = p1 + (p2 - p1) + (p3 - p1)
+                    p4_candidates = [p for p in sorted_intersections if np.linalg.norm(p - p4_expected) < 20] # Close to expected
+                    if not p4_candidates: continue
+                    p4 = min(p4_candidates, key=lambda p: np.linalg.norm(p - p4_expected))
+
+                    image_points = np.array([p1, p2, p3, p4], dtype=np.float32)
                     objp = np.array([[0,0,0], [TILE_WIDTH,0,0], [0,TILE_HEIGHT,0], [TILE_WIDTH,TILE_HEIGHT,0]], dtype=np.float32)
 
                     _, rvec, tvec = cv2.solvePnP(objp, image_points, K, DIST_COEFFS)
-                    current_t_ocs = tvec.flatten()
+                    R, _ = cv2.Rodrigues(rvec)
+                    current_t_ocs = (-R.T @ tvec).flatten()
 
                     if last_t_ocs is not None:
                         delta_t_ocs = current_t_ocs - last_t_ocs
