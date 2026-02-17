@@ -95,10 +95,11 @@ plot_camera_pose(rot, trans)
 
 # Stereo Rectification
 rectifyScale = 1
-rectL, rectR, projMatrixL, projMatrixR, Q, roi_L, roi_R = cv.stereoRectify(newCameraMatrixL, distL, newCameraMatrixR, distR, grayL.shape[::-1], rot, trans, rectifyScale, (0, 0))
+rectL, rectR, projMatrixL, projMatrixR, Q, roi_L, roi_R = cv.stereoRectify(newCameraMatrixL, distL, newCameraMatrixR, distR, grayL.shape[::-1], rot, trans, rectifyScale, grayL.shape[::-1])
 
+# Final shape should be same even if using different cams
 stereoMapL = cv.initUndistortRectifyMap(newCameraMatrixL, distL, rectL, projMatrixL, grayL.shape[::-1], cv.CV_16SC2)
-stereoMapR = cv.initUndistortRectifyMap(newCameraMatrixR, distR, rectR, projMatrixR, grayR.shape[::-1], cv.CV_16SC2)
+stereoMapR = cv.initUndistortRectifyMap(newCameraMatrixR, distR, rectR, projMatrixR, grayL.shape[::-1], cv.CV_16SC2)
 
 rectImgL = cv.remap(imgL, stereoMapL[0], stereoMapL[1], cv.INTER_LINEAR)
 rectImgR = cv.remap(imgR, stereoMapR[0], stereoMapR[1], cv.INTER_LINEAR)
@@ -109,7 +110,7 @@ cv.imshow('Showing perfect epipolar lines.', vis)
 cv.waitKey(0)
 
 # Saving the exact pixel(original-distorted) to undistorted-pixel map
-cv_file = cv.FileStorage('stereoMap.xml', cv.FILE_STORAGE_WRITE)
+cv_file = cv.FileStorage('../stereoMap.xml', cv.FILE_STORAGE_WRITE)
 cv_file.write('stereoMapL_x', stereoMapL[0])
 cv_file.write('stereoMapL_y', stereoMapL[1])
 cv_file.write('stereoMapR_x', stereoMapR[0])

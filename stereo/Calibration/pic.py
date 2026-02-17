@@ -1,7 +1,7 @@
 import cv2 as cv
 
 capL = cv.VideoCapture(0)
-capR = cv.VideoCapture(0)
+capR = cv.VideoCapture(1)
 
 count = 0
 
