@@ -17,12 +17,9 @@
 !readme
 !readme.*
 
-# Allow poetry.lock
-!poetry.lock
-
 # Allow LICENSE files (case-insensitive)
 !LICENSE
 !LICENSE.*
 
-# Optional: keep .gitignore itself
+# keep .gitignore itself
 !.gitignore
