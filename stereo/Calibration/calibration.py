@@ -21,7 +21,6 @@ def plot_camera_pose(rot, trans):
     plt.legend(); plt.show()
 
 chessboardSize = (9, 6)
-frame_size = () # Would need to check
 square_size = 24.00 # mm, need this so that the baseline comes in mm
 
 # Termination criteria, stop after 30 iterations or improvement < 0.001
@@ -71,22 +70,10 @@ for img_left, img_right in zip(imagesLeft, imagesRight):
 cv.destroyAllWindows()
 
 # Obtaining the new camera matrix for precision
-# Find out the correct alpha
 retL, cameraMatrixL, distL, rvecsL, tvecsL = cv.calibrateCamera(objpoints, imgpointL, grayL.shape[::-1], None, None)
-heightL, widthL, channelsL = imgL.shape
-newCameraMatrixL, roiL = cv.getOptimalNewCameraMatrix(cameraMatrixL, distL, (widthL, heightL), 0, (widthL, heightL))
-
 retR, cameraMatrixR, distR, rvecsR, tvecsR = cv.calibrateCamera(objpoints, imgpointR, grayR.shape[::-1], None, None)
-heightR, widthR, channelsR = imgR.shape
-newCameraMatrixR, roiR = cv.getOptimalNewCameraMatrix(cameraMatrixR, distR, (widthR, heightR), 0, (widthR, heightR))
-
-dstL = cv.undistort(imgL, cameraMatrixL, distL, None, newCameraMatrixL)
-dstR = cv.undistort(imgR, cameraMatrixR, distR, None, newCameraMatrixR)
-cv.rectangle(dstL, (roiL[0], roiL[1]), (roiL[0] + roiL[2], roiL[1] + roiL[3]), (255, 0, 0), 3)
-cv.rectangle(dstR, (roiR[0], roiR[1]), (roiR[0] + roiR[2], roiR[1] + roiR[3]), (255, 0, 0), 3)
-cv.imshow('Region of Interest after finding the newK L', dstL)
-cv.imshow('Region of Interest after finding the newK R', dstR)
-cv.waitKey(0)
+newCameraMatrixL = cameraMatrixL
+newCameraMatrixR = cameraMatrixR
 
 # Getting the transformation between the 2 cameras
 flags = cv.CALIB_FIX_INTRINSIC # We know that the K1, K2 are good enough to remain fix
@@ -94,7 +81,7 @@ retStereo, newCameraMatrixL, distL, newCameraMatrixR, distR, rot, trans, essenti
 plot_camera_pose(rot, trans)
 
 # Stereo Rectification
-rectifyScale = 1
+rectifyScale = 0
 rectL, rectR, projMatrixL, projMatrixR, Q, roi_L, roi_R = cv.stereoRectify(newCameraMatrixL, distL, newCameraMatrixR, distR, grayL.shape[::-1], rot, trans, rectifyScale, grayL.shape[::-1])
 
 # Final shape should be same even if using different cams

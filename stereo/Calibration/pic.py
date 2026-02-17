@@ -1,7 +1,7 @@
 import cv2 as cv
 
 capL = cv.VideoCapture(0)
-capR = cv.VideoCapture(1)
+capR = cv.VideoCapture(2)
 
 count = 0
 
@@ -9,8 +9,8 @@ while True:
     retL, frameL = capL.read()
     retR, frameR = capR.read()
     if not (retL and retR): break
-    cv.imshow('Left', frameL)
-    cv.imshow('Right', frameR)
+    cv.imshow('Left', frameL[:, ::-1])
+    cv.imshow('Right', frameR[:, ::-1])
     key = cv.waitKey(1)
     if key == ord('q'):
         break
