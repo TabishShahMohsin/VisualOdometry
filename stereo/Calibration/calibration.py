@@ -1,3 +1,7 @@
+'''
+https://youtube.com/playlist?list=PLCpB2LmtGbuel31gdKHSV_HBaZa2guc6Y&si=oxFtYDOubxBtOfHM
+'''
+
 import numpy as np
 import cv2 as cv
 import glob
@@ -36,15 +40,15 @@ objpoints = [] # 3d points in real world space
 imgpointL = [] # 2d points in the left frame on image plane
 imgpointR = [] # 2d points in the right frame on image plane
 
-imagesLeft = glob.glob('left/*.jpg')
-imagesRight = glob.glob('right/*.jpg')
+imagesLeft = sorted(glob.glob('left/*.jpg'))
+imagesRight = sorted(glob.glob('right/*.jpg'))
 
 for img_left, img_right in zip(imagesLeft, imagesRight):
     
     imgL = cv.imread(img_left)
     imgR = cv.imread(img_right)
-    grayL = cv.cvtColor(imgL, cv.COLOR_RGB2GRAY)
-    grayR = cv.cvtColor(imgR, cv.COLOR_RGB2GRAY)
+    grayL = cv.cvtColor(imgL, cv.COLOR_BGR2GRAY)
+    grayR = cv.cvtColor(imgR, cv.COLOR_BGR2GRAY)
 
     retL, cornersL = cv.findChessboardCorners(grayL, chessboardSize)
     retR, cornersR = cv.findChessboardCorners(grayR, chessboardSize)
@@ -100,7 +104,7 @@ rectImgL = cv.remap(imgL, stereoMapL[0], stereoMapL[1], cv.INTER_LINEAR)
 rectImgR = cv.remap(imgR, stereoMapR[0], stereoMapR[1], cv.INTER_LINEAR)
 vis = np.hstack((rectImgL, rectImgR))
 for y in range(0, vis.shape[0], 50):
-    cv.line(vis, (0, y), (2* vis.shape[1], y), (0, 255, 0), 3)
+    cv.line(vis, (0, y), (vis.shape[1], y), (0, 255, 0), 3)
 cv.imshow('Showing perfect epipolar lines.', vis)
 cv.waitKey(0)
 
